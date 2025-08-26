@@ -124,3 +124,20 @@ app_ready
 sum(rate(dice_rolls_total[1m]))
 
 Grafana dashboard “🎲 Dice App Status” is provisioned automatically.
+
+-----
+
+Running pods:
+
+![Pods](images/pods.png)
+
+
+Prometheus targets:
+
+![Prometheus](images/prometheus.png)
+
+
+Grafana:
+
+![Grafana log-in form](images/grafana_login.png)
+![Grafana](images/grafana.png)

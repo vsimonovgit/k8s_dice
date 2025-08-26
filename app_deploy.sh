@@ -42,27 +42,75 @@ open_url(){
   else echo "→ open: $url"; fi
 }
 
+# Util to get if there is MacOS
+is_macos(){ [ "$(uname -s)" = "Darwin" ]; }
+has_brew(){ command -v brew >/dev/null 2>&1; }
+
+# PKG method: "brew" or "binary" (by default: macOS → brew, Linux → binary)
+PKG_METHOD="${PKG_METHOD:-auto}"
+
+use_brew_install(){
+  if [ "$PKG_METHOD" = "brew" ]; then return 0; fi
+  if [ "$PKG_METHOD" = "binary" ]; then return 1; fi
+
+  is_macos && has_brew
+}
+
 install_kubectl(){
-  need kubectl && return
+  if command -v kubectl >/dev/null 2>&1; then return; fi
   say "Installing kubectl..."
+
+  if use_brew_install; then
+    say "Using Homebrew to install kubectl (macOS)"
+    brew install kubectl
+    return
+  fi
+
+  # binary path (Linux or macOS w/o brew/forced)
   OS=$(uname | tr '[:upper:]' '[:lower:]')
+  ARCH=$(uname -m)
+  case "$ARCH" in x86_64|amd64) ARCH=amd64 ;; arm64|aarch64) ARCH=arm64 ;; *) err "Unsupported arch: $ARCH"; exit 1 ;; esac
   REL="$(curl -sL https://dl.k8s.io/release/stable.txt)"
-  curl -LO "https://dl.k8s.io/release/${REL}/bin/${OS}/amd64/kubectl"
+  URL="https://dl.k8s.io/release/${REL}/bin/${OS}/${ARCH}/kubectl"
+  say "Downloading: $URL"
+  curl -L -o kubectl "$URL"
   chmod +x kubectl && sudo mv kubectl /usr/local/bin/kubectl
+  say "kubectl installed: $(kubectl version --client --short)"
 }
 
 install_minikube(){
-  need minikube && return
+  if command -v minikube >/dev/null 2>&1; then return; fi
   say "Installing minikube..."
+
+  if use_brew_install; then
+    say "Using Homebrew to install minikube (macOS)"
+    brew install minikube
+    return
+  fi
+
   OS=$(uname | tr '[:upper:]' '[:lower:]')
-  curl -Lo minikube "https://storage.googleapis.com/minikube/releases/latest/minikube-${OS}-amd64"
+  ARCH=$(uname -m)
+  case "$ARCH" in x86_64|amd64) ARCH=amd64 ;; arm64|aarch64) ARCH=arm64 ;; *) err "Unsupported arch: $ARCH"; exit 1 ;; esac
+  URL="https://storage.googleapis.com/minikube/releases/latest/minikube-${OS}-${ARCH}"
+  say "Downloading: $URL"
+  curl -L -o minikube "$URL"
   chmod +x minikube && sudo mv minikube /usr/local/bin/minikube
+  say "minikube installed: $(minikube version)"
 }
 
 install_helm(){
-  need helm && return
+  if command -v helm >/dev/null 2>&1; then return; fi
   say "Installing helm..."
+
+  if use_brew_install; then
+    say "Using Homebrew to install helm (macOS)"
+    brew install helm
+    return
+  fi
+
+  # binary path
   curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  say "helm installed: $(helm version --short)"
 }
 
 ensure_docker(){
@@ -215,7 +263,7 @@ kubectl apply -f deploy/monitoring/dice-dashboard.yaml
 kubectl apply -f deploy/monitoring/dice-alerts.yaml
 
 # Warm up: hit /dice 10 times
-say "Warming up: hitting http://localhost/dice x10 via Ingress"
+say "Warming up: hitting http://localhost:8080/dice x10 via Ingress"
 kubectl -n dice port-forward svc/dice-svc 8080:80 >/dev/null 2>&1 &
 sleep 1
 for i in $(seq 1 10); do

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: dice-svc
+  namespace: dice
+spec:
+  type: ClusterIP
+  selector: { app: dice }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080

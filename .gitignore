@@ -1,0 +1,12 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# docker build context garbage
+*.log
+
+# macOS
+.DS_Store
+

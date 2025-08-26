@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dice-grafana-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  dice-dashboard.json: |
+    {
+      "id": null,
+      "title": "Dice App Status",
+      "schemaVersion": 38,
+      "version": 1,
+      "refresh": "10s",
+      "time": { "from": "now-15m", "to": "now" },
+      "panels": [
+        {
+          "type": "stat",
+          "title": "App Ready (avg 5m)",
+          "gridPos": { "x": 0, "y": 0, "w": 8, "h": 6 },
+          "targets": [
+            { "expr": "avg_over_time(app_ready[5m])", "legendFormat": "ready" }
+          ]
+        },
+        {
+          "type": "stat",
+          "title": "Dice Rolls per Minute",
+          "gridPos": { "x": 8, "y": 0, "w": 8, "h": 6 },
+          "targets": [
+            { "expr": "sum(rate(dice_rolls_total[1m]))", "legendFormat": "rpm" }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Dice Rolls rate (5m)",
+          "gridPos": { "x": 0, "y": 6, "w": 16, "h": 8 },
+          "targets": [
+            { "expr": "sum(rate(dice_rolls_total[5m]))", "legendFormat": "rolls/s" }
+          ]
+        }
+      ]
+    }

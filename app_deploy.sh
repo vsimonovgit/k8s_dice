@@ -333,6 +333,16 @@ kubectl apply -f deploy/k8s/servicemonitor.yaml
 kubectl apply -f deploy/monitoring/dice-dashboard.yaml
 kubectl apply -f deploy/monitoring/dice-alerts.yaml
 
+# Warm up: hit /dice 10 times
+say "Warming up: hitting http://localhost:8080/dice x10 via Ingress"
+kubectl -n dice port-forward svc/dice-svc 8080:80 >/dev/null 2>&1 &
+sleep 1
+for i in $(seq 1 10); do
+  curl -sS http://localhost:8080/dice || true
+  echo
+  sleep 0.3
+done
+
 # Port-forward & open
 say "Port-forward Prometheus & Grafana (background)"
 # just make sure port-forwarding is clean
@@ -351,16 +361,6 @@ sleep 2
 kubectl -n dice patch svc dice-svc --type=merge -p '{"metadata":{"labels":{"app":"dice","app.kubernetes.io/name":"dice","app.kubernetes.io/instance":"dice"}}}' \
 && kubectl -n monitoring patch prometheus $(kubectl -n monitoring get prometheus -o jsonpath='{.items[0].metadata.name}') --type=merge -p '{"spec":{"serviceMonitorSelector":{},"serviceMonitorNamespaceSelector":{},"podMonitorSelector":{},"podMonitorNamespaceSelector":{},"serviceMonitorSelectorNilUsesHelmValues":false,"podMonitorSelectorNilUsesHelmValues":false}}' \
 && kubectl -n monitoring rollout restart deploy/monitoring-kube-prometheus-operator
-
-# Warm up: hit /dice 10 times
-say "Warming up: hitting http://localhost:8080/dice x10 via Ingress"
-kubectl -n dice port-forward svc/dice-svc 8080:80 >/dev/null 2>&1 &
-sleep 1
-for i in $(seq 1 10); do
-  curl -sS http://localhost:8080/dice || true
-  echo
-  sleep 0.3
-done
 
 say "Opening Grafana & Prometheus in your browser..."
 open_url "http://localhost:9090/targets"   # Prometheus targets

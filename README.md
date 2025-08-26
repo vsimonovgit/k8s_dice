@@ -129,15 +129,15 @@ Grafana dashboard “🎲 Dice App Status” is provisioned automatically.
 
 Running pods:
 
-![Pods](images/pods.png)
+![Pods](images/running_pods.png)
 
 
 Prometheus targets:
 
-![Prometheus](images/prometheus.png)
+![Prometheus](images/prometheus_targets.png)
 
 
 Grafana:
 
-![Grafana log-in form](images/grafana_login.png)
-![Grafana](images/grafana.png)
+![Grafana log-in form](images/grafana_log_in_page.png)
+![Grafana](images/grafana_dashboards.png)

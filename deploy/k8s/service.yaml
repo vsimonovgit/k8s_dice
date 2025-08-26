@@ -3,9 +3,13 @@ kind: Service
 metadata:
   name: dice-svc
   namespace: dice
+  labels:
+    app: dice
+    app.kubernetes.io/name: dice
+    app.kubernetes.io/instance: dice
 spec:
-  type: ClusterIP
-  selector: { app: dice }
+  selector:
+    app: dice
   ports:
     - name: http
       port: 80

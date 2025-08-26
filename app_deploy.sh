@@ -185,6 +185,32 @@ ensure_docker(){
   fi
 }
 
+wait_ingress_ready() {
+  say "Ensuring ingress-nginx is ready..."
+  minikube addons enable ingress >/dev/null 2>&1 || true
+  kubectl -n ingress-nginx wait --for=condition=Available deploy/ingress-nginx-controller --timeout=300s
+
+  say "Waiting for admission webhook health..."
+  for i in {1..10}; do
+    if kubectl -n ingress-nginx get endpoints ingress-nginx-controller-admission -o jsonpath='{.subsets[0].addresses[0].ip}' >/dev/null 2>&1; then
+      if kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller-admission 8443:443 >/dev/null 2>&1 & then
+        sleep 2
+        if curl -sk https://127.0.0.1:8443/healthz | grep -qi '^ok$'; then
+          pkill -f "kubectl.*port-forward.*ingress-nginx-controller-admission.*8443:443" >/dev/null 2>&1 || true
+          say "Admission webhook is healthy."
+          return 0
+        fi
+        pkill -f "kubectl.*port-forward.*ingress-nginx-controller-admission.*8443:443" >/dev/null 2>&1 || true
+      fi
+    fi
+    sleep 2
+  done
+  say "Admission still not ready → setting failurePolicy=Ignore"
+  kubectl patch validatingwebhookconfiguration ingress-nginx-admission \
+    --type='json' \
+    -p='[{"op":"replace","path":"/webhooks/0/failurePolicy","value":"Ignore"}]' || true
+}
+
 rand_pass(){ LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32; }
 
 # Prepare k8s
@@ -215,7 +241,52 @@ say "Waiting for dice-app rollout..."
 kubectl -n "$NS_APP" rollout status deploy/dice-app --timeout=180s
 kubectl -n ingress-nginx wait --for=condition=Available deploy/ingress-nginx-controller --timeout=180s
 kubectl -n ingress-nginx get endpoints ingress-nginx-controller-admission
-kubectl apply -f deploy/k8s/ingress.yaml
+
+wait_ingress_ready
+kubectl apply -f deploy/k8s/ingress.yaml || {
+  say "Retry applying ingress after relaxing webhook..."
+  kubectl patch validatingwebhookconfiguration ingress-nginx-admission \
+    --type='json' \
+    -p='[{"op":"replace","path":"/webhooks/0/failurePolicy","value":"Ignore"}]' || true
+  kubectl apply -f deploy/k8s/ingress.yaml
+}
+
+wait_prometheus_ready() {
+  local ns="monitoring"
+  say "[Prometheus] waiting for CRDs/Pods..."
+
+  # Wait for Prometheus pods
+  for i in {1..120}; do
+    if kubectl -n "$ns" get pods -l app.kubernetes.io/name=prometheus \
+         -o jsonpath='{.items[0].metadata.name}' >/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+
+  # Wait for rollout if there is statefulset — else wait for pod Ready
+  if kubectl -n "$ns" get sts -l app.kubernetes.io/name=prometheus >/dev/null 2>&1; then
+    local sts
+    sts=$(kubectl -n "$ns" get sts -l app.kubernetes.io/name=prometheus \
+            -o jsonpath='{.items[0].metadata.name}')
+    say "[Prometheus] waiting for StatefulSet/$sts rollout..."
+    kubectl -n "$ns" rollout status sts/"$sts" --timeout=10m || {
+      err "[Prometheus] rollout status failed, showing pods:"; 
+      kubectl -n "$ns" get pods -l app.kubernetes.io/name=prometheus -o wide
+      return 1
+    }
+  else
+    say "[Prometheus] waiting for pods Ready by label..."
+    kubectl -n "$ns" wait --for=condition=Ready pod \
+      -l app.kubernetes.io/name=prometheus --timeout=10m || {
+      err "[Prometheus] pods not Ready, showing status:"; 
+      kubectl -n "$ns" get pods -l app.kubernetes.io/name=prometheus -o wide
+      return 1
+    }
+  fi
+
+  say "[Prometheus] Ready."
+}
 
 # Helm monitoring
 say "Helm repo add/update prometheus-community"
@@ -239,6 +310,8 @@ say "Installing/Upgrading kube-prometheus-stack with deploy/monitoring/values.ya
 helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
   -n "$NS_MON" --create-namespace -f deploy/monitoring/values.yaml
 
+wait_prometheus_ready
+
 say "Waiting Grafana & Prometheus to be Ready..."
 kubectl -n "$NS_MON" rollout status deploy/monitoring-grafana --timeout=300s
 kubectl -n "$NS_MON" rollout status deploy/monitoring-kube-prometheus-operator --timeout=300s || true
@@ -251,9 +324,7 @@ if [ -n "$PROM_STS" ]; then
   kubectl -n "$NS_MON" rollout status sts/"$PROM_STS" --timeout=360s
 else
   say "Prometheus StatefulSet was not found. Waiting for Prometheus pods become ready..."
-  kubectl -n "$NS_MON" wait --for=condition=Ready pod \
-    -l app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=monitoring \
-    --timeout=120s
+  kubectl -n "$NS_MON" wait --for=condition=Ready pod -l app.kubernetes.io/name=prometheus,app.kubernetes.io/instance=monitoring --timeout=180s
 fi
 
 # ServiceMonitor + dashboard + alerts
@@ -261,6 +332,25 @@ say "Applying ServiceMonitor & dashboard & alerts"
 kubectl apply -f deploy/k8s/servicemonitor.yaml
 kubectl apply -f deploy/monitoring/dice-dashboard.yaml
 kubectl apply -f deploy/monitoring/dice-alerts.yaml
+
+# Port-forward & open
+say "Port-forward Prometheus & Grafana (background)"
+# just make sure port-forwarding is clean
+pkill -f "kubectl.*port-forward.*monitoring-grafana" >/dev/null 2>&1 || true
+pkill -f "kubectl.*port-forward.*monitoring-kube-prometheus-prometheus" >/dev/null 2>&1 || true
+
+# Prometheus
+sleep 2
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/dev/null 2>&1 &
+sleep 3
+
+# Grafana
+kubectl -n "$NS_MON" port-forward svc/monitoring-grafana 3000:80 >/dev/null 2>&1 &
+sleep 2
+
+kubectl -n dice patch svc dice-svc --type=merge -p '{"metadata":{"labels":{"app":"dice","app.kubernetes.io/name":"dice","app.kubernetes.io/instance":"dice"}}}' \
+&& kubectl -n monitoring patch prometheus $(kubectl -n monitoring get prometheus -o jsonpath='{.items[0].metadata.name}') --type=merge -p '{"spec":{"serviceMonitorSelector":{},"serviceMonitorNamespaceSelector":{},"podMonitorSelector":{},"podMonitorNamespaceSelector":{},"serviceMonitorSelectorNilUsesHelmValues":false,"podMonitorSelectorNilUsesHelmValues":false}}' \
+&& kubectl -n monitoring rollout restart deploy/monitoring-kube-prometheus-operator
 
 # Warm up: hit /dice 10 times
 say "Warming up: hitting http://localhost:8080/dice x10 via Ingress"
@@ -271,21 +361,6 @@ for i in $(seq 1 10); do
   echo
   sleep 0.3
 done
-
-# Port-forward & open
-say "Port-forward Prometheus & Grafana (background)"
-# just make sure port-forwarding is clean
-pkill -f "kubectl.*port-forward.*monitoring-grafana" >/dev/null 2>&1 || true
-pkill -f "kubectl.*port-forward.*monitoring-kube-prometheus-prometheus" >/dev/null 2>&1 || true
-
-# Prometheus
-sleep 1
-kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/dev/null 2>&1 &
-sleep 1
-
-# Grafana
-kubectl -n "$NS_MON" port-forward svc/monitoring-grafana 3000:80 >/dev/null 2>&1 &
-sleep 2
 
 say "Opening Grafana & Prometheus in your browser..."
 open_url "http://localhost:9090/targets"   # Prometheus targets

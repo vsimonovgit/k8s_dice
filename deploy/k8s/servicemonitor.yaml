@@ -4,12 +4,14 @@ metadata:
   name: dice-servicemonitor
   namespace: dice
 spec:
-  selector:
-    matchLabels:
-      app: dice
   namespaceSelector:
     matchNames: ["dice"]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dice
+      app.kubernetes.io/instance: dice
   endpoints:
     - port: http
       path: /metrics
       interval: 15s
+      scrapeTimeout: 5s

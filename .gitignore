@@ -6,7 +6,21 @@ venv/
 
 # docker build context garbage
 *.log
+*.tar
+*.img
 
 # macOS
 .DS_Store
 
+# Kubernetes
+*.yaml~
+.kube/
+.helm/
+
+# Minikube / K8s cache
+.minikube/
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/

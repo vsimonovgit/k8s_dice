@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# Just set 'chmod +x ./app_deploy.sh'
+# and launch it:
+# ./app_deploy.sh
+
 # Settings
 IMAGE_TAG="${IMAGE_TAG:-dice-app:latest}"
 NS_APP="dice"
@@ -227,7 +231,8 @@ pkill -f "kubectl.*port-forward.*monitoring-grafana" >/dev/null 2>&1 || true
 pkill -f "kubectl.*port-forward.*monitoring-kube-prometheus-prometheus" >/dev/null 2>&1 || true
 
 # Prometheus
-kubectl -n "$NS_MON" port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/dev/null 2>&1 &
+sleep 1
+kubectl -n monitoring port-forward svc/monitoring-kube-prometheus-prometheus 9090:9090 >/dev/null 2>&1 &
 sleep 1
 
 # Grafana

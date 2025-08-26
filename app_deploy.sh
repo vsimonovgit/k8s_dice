@@ -15,19 +15,21 @@ need(){ command -v "$1" >/dev/null 2>&1; }
 
 # Clone repo
 REPO_URL="https://github.com/vsimonovgit/k8s_dice.git"
-WORKDIR="$HOME/k8s_dice"
-mkdir -p "$WORKDIR"
+WORKDIR="$HOME/test"
 
-say "Cloning repo from $REPO_URL ..."
-if [ -d "$WORKDIR/.git" ]; then
-  say "Repo already exists at $WORKDIR — pulling latest changes"
-  git -C "$WORKDIR" pull --rebase
-else
-  git clone "$REPO_URL" "$WORKDIR"
-fi
+clone_repo(){
+  mkdir -p "$WORKDIR" && cd "$WORKDIR"
+  say "Cloning repo from $REPO_URL ..."
+  if [ -d "$WORKDIR/.git" ]; then
+    say "Repo already exists at $WORKDIR — pulling latest changes"
+    git -C "$WORKDIR" pull --rebase
+  else
+    git clone "$REPO_URL" "$WORKDIR"
+  fi
+  say "Switched into repo directory: $(pwd)"
+}
 
-cd "$WORKDIR"
-say "Switched into repo directory: $(pwd)"
+[ "$(basename "$(pwd)")" = "k8s_dice" ] || clone_repo
 
 open_url(){
   local url="$1"
